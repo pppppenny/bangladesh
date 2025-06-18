@@ -13,7 +13,6 @@ import os
 
 
 
-
 # the time series plot function
 def tmplt (stationdata,station_name,ax):
     dt_used = stationdata[['Year','Month','DecYear','SWLavg']]
@@ -75,7 +74,7 @@ with PdfPages(output_path) as pdf:
 
                 tmplt(df, station_name, axes[i])
             else:
-                axes[i].set_visible(False)  # Hide unused subplot
+                axes[i].set_visible(False)  
 
         plt.tight_layout()
         pdf.savefig(fig, bbox_inches='tight')
