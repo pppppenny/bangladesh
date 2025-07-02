@@ -15,9 +15,12 @@ import os
 
 # the time series plot function
 def tmplt (stationdata,station_name,ax):
-    dt_used = stationdata[['Year','Month','DecYear','SWLavg']]
+    dt_used = stationdata[['Year','Month','Day','DecYear','SWLavg']].copy()
+    dt_used['DateTMS'] = pd.to_datetime(dt_used[['Year', 'Month','Day']])     #get the timeseries object 
+
     dt_used.index = dt_used['Year']
-    dt_cleaned = dt_used.dropna()
+
+    dt_cleaned = dt_used.dropna() # for the regression to run smoothly 
     if len(dt_cleaned) < 2:
         ax.text(0.5, 0.5, f'Insufficient data for {station_name}', 
                 ha='center', va='center', transform=ax.transAxes)
@@ -39,18 +42,57 @@ def tmplt (stationdata,station_name,ax):
     ax.grid(True)
 
 
+# applying the criterias (the filtering process)
+def fails_quality_check(sdata):
+
+
+    # 1. less than 17/34 years
+    years_with_data = sdata.loc[sdata['SWLavg'].notna(), 'DecYear'].unique()
+    if len(years_with_data) < 204:
+        print(f"Skipping {station_name}: Covering too few years")
+        return True
+    
+    # 2. Long continuous gap (more than 5 years)
+    sdata['HasData'] = sdata['SWLavg'].notna().astype(int)
+    sdata['GapGroup'] = (sdata['HasData'].diff() != 0).cumsum()
+    gap_lengths = sdata[sdata['HasData'] == 0].groupby('GapGroup').size()
+    if (gap_lengths >= 60).any():
+        print(f'Skipping {station_name}: Long continuous gap')
+        return True
+    
+    # 3. Multiple gaps with each more than 2 years
+    if (gap_lengths >= 24).sum() > 1:
+        print(f'Skipping {station_name}: Multiple long gaps')
+        return True
+
+    # 4. Sudden changes          (need to be discussed)
+    #sdata['Change'] = sdata['SWLavg'].diff().abs()
+    #if (sdata['Change'] > 1.5).any():  # adjust threshold
+    #    print(f'Skipping {station_name}: Abrupt changes')
+    #    return True
+
+    return False
+
+
+
+
+
 
 # getting all the station data 
-folder_path = '/Users/biar/Desktop/BWDB_nontidal_data_1985_2018'             ### change the path name when needed 
+folder_path = '/Users/biar/Desktop/BWDB_tidal_data_1985_2018'             ### change the path name when needed 
 csv_files = glob.glob(f'{folder_path}/*.csv')
 
 
 print(f"Found {len(csv_files)} CSV files to process")
 
 
-## setting output path
-output_path='/Users/biar/Desktop/tmp_for_nontidal.pdf'                         ### change the output path when needed 
 
+## setting output path
+output_path='/Users/biar/Desktop/filtered_tmp_for_tidal.pdf'                         ### change the output path when needed 
+
+
+
+###the main loop
 # loop through all the stations 
 with PdfPages(output_path) as pdf:
 
@@ -65,14 +107,28 @@ with PdfPages(output_path) as pdf:
                 station_name = file_name.split('_monthly')[0]
 
                 df = pd.read_csv(file_path)
+
                 if df.empty:
-                  print(f"Skipping {station_name}: CSV file is empty")
-                  axes[i].text(0.5, 0.5, f'No data available for {station_name}', ha='center', va='center', transform=axes[i].transAxes)
-                  axes[i].set_title(f'{station_name} - No Data')
+                    print(f"Skipping {station_name}: CSV file is empty")
+                    axes[i].text(0.5, 0.5, f'No data available for {station_name}', ha='center', va='center', transform=axes[i].transAxes)
+                    axes[i].set_title(f'{station_name} - No Data')
 
-                  continue
+                    continue
 
+
+                #the filtering part 
+
+                if fails_quality_check(df):
+                    axes[i].text(0.5, 0.5, f'{station_name}: Low Data Quality',
+                    ha='center', va='center', transform=axes[i].transAxes)
+                    axes[i].set_title(f'{station_name} - Skipped After Applying Filtering Criteria')
+                    continue
+
+                
+                #Actual plotting 
                 tmplt(df, station_name, axes[i])
+
+
             else:
                 axes[i].set_visible(False)  
 
