@@ -20,6 +20,8 @@ def tmplt (stationdata,station_name,ax):
 
     dt_used.index = dt_used['Year']
 
+    matching_station = danger_level_data[danger_level_data['StationID'] == station_name]
+
     dt_cleaned = dt_used.dropna() # for the regression to run smoothly 
     if len(dt_cleaned) < 2:
         ax.text(0.5, 0.5, f'Insufficient data for {station_name}', 
@@ -34,12 +36,37 @@ def tmplt (stationdata,station_name,ax):
     dt_used.plot(x='DecYear',y='SWLavg',  ax=ax,label='Average surface water level')
     sns.regplot(x='DecYear', y='SWLavg', data=dt_cleaned, ax=ax,ci=None, color='orange',label=f'Linear trend with a slope of {slope:.4f}', scatter=False)
 
-    ax.set_title(f'{station_name} Water Level Monthly Trend (1985-2018)')
+    if matching_station.empty:
+        print(f"[Warning] No matching station name for station id: {station_name}")
+        ax.set_title(f'{station_name} Water Level Monthly Trend (1985-2018)')
+
+
+    else:
+        actual_name = matching_station['Station_Name'].iloc[0]
+        ax.set_title(f'{station_name} {actual_name} Water Level Monthly Trend (1985-2018)')
+
     ax.set_xlabel('Year')
     ax.set_ylabel('Water Level (meters)')
 
     mean_level = dt_cleaned['SWLavg'].mean()
     ax.axhline(mean_level, color='black', linestyle='--', label=f'Mean Water Level: {mean_level:.2f}')
+
+    #plotting the danger level 
+    count = 0
+    if not matching_station.empty:
+        danger_level = matching_station['Danger_Level_meters'].iloc[0]
+        
+        if pd.notna(danger_level):
+            ax.axhline(danger_level, color='red', linestyle='-', label=f'Danger Water Level: {danger_level:.2f}')
+            for watervalue in stationdata['SWLavg']:
+              if watervalue >  danger_level:
+                count = count +1
+
+            percentage = (count/(len(stationdata.dropna())))*100
+            ax.text(0.02, 0.98,f'T_exceeded: {count} ({percentage:.2f}%)', transform=ax.transAxes, color='red', verticalalignment='top')
+
+        else:
+            ax.text(0.02, 0.98, 'Danger Level: No Data', transform=ax.transAxes, color='red', verticalalignment='top')
 
     ax.legend()
     ax.grid(True)
@@ -86,8 +113,11 @@ def fails_quality_check(sdata,ax):
 
 
 # getting all the station data 
-folder_path = '/Users/biar/Desktop/BWDB_nontidal_data_1985_2018'             ### change the path name when needed 
+folder_path = '/Users/biar/Desktop/BWDB_tidal_data_1985_2018'             ### change the path name when needed 
 csv_files = glob.glob(f'{folder_path}/*.csv')
+
+#getting the danger level water data
+danger_level_data = pd.read_csv('/Users/biar/Desktop/BWDB_river_danger_level_data.csv')
 
 
 print(f"Found {len(csv_files)} CSV files to process")
@@ -95,7 +125,7 @@ print(f"Found {len(csv_files)} CSV files to process")
 
 
 ## setting output path
-output_path='/Users/biar/Desktop/color_filtered_tmp_for_nontidal.pdf'                         ### change the output path when needed 
+output_path='/Users/biar/Desktop/color_filtered_tmp_WDangerLev_for_tidal.pdf'                         ### change the output path when needed 
 
 
 
