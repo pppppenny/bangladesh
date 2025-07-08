@@ -30,28 +30,35 @@ def tmplt (stationdata,station_name,ax):
         return
     
 
-    ## the filtering part 
+    ## the plotting part 
 
     slope, intercept, r_value, p_value, std_err = linregress(dt_cleaned['DecYear'], dt_cleaned['SWLavg'])
     dt_used.plot(x='DecYear',y='SWLavg',  ax=ax,label='Average surface water level')
     sns.regplot(x='DecYear', y='SWLavg', data=dt_cleaned, ax=ax,ci=None, color='orange',label=f'Linear trend with a slope of {slope:.4f}', scatter=False)
 
+
+    ## matching the danger level station id and station name 
+
     if matching_station.empty:
         print(f"[Warning] No matching station name for station id: {station_name}")
         ax.set_title(f'{station_name} Water Level Monthly Trend (1985-2018)')
+        ax.text(0.02, 0.98, 'No Station Danger Level Record', transform=ax.transAxes, color='red', verticalalignment='top')
 
 
     else:
         actual_name = matching_station['Station_Name'].iloc[0]
-        ax.set_title(f'{station_name} {actual_name} Water Level Monthly Trend (1985-2018)')
+        river_name = matching_station['River'].iloc[0]
+        ax.set_title(f'{station_name}-{actual_name} (River: {river_name}) Water Level Monthly Trend (1985-2018)')
 
     ax.set_xlabel('Year')
     ax.set_ylabel('Water Level (meters)')
+    
 
+    #plotting the mean water level 
     mean_level = dt_cleaned['SWLavg'].mean()
     ax.axhline(mean_level, color='black', linestyle='--', label=f'Mean Water Level: {mean_level:.2f}')
 
-    #plotting the danger level 
+    #plotting the danger level and calculating num of times exceeded 
     count = 0
     if not matching_station.empty:
         danger_level = matching_station['Danger_Level_meters'].iloc[0]
@@ -68,7 +75,7 @@ def tmplt (stationdata,station_name,ax):
         else:
             ax.text(0.02, 0.98, 'Danger Level: No Data', transform=ax.transAxes, color='red', verticalalignment='top')
 
-    ax.legend()
+    ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
     ax.grid(True)
 
 
@@ -113,7 +120,7 @@ def fails_quality_check(sdata,ax):
 
 
 # getting all the station data 
-folder_path = '/Users/biar/Desktop/BWDB_tidal_data_1985_2018'             ### change the path name when needed 
+folder_path = '/Users/biar/Desktop/BWDB_nontidal_data_1985_2018'             ### change the path name when needed 
 csv_files = glob.glob(f'{folder_path}/*.csv')
 
 #getting the danger level water data
@@ -125,7 +132,7 @@ print(f"Found {len(csv_files)} CSV files to process")
 
 
 ## setting output path
-output_path='/Users/biar/Desktop/color_filtered_tmp_WDangerLev_for_tidal.pdf'                         ### change the output path when needed 
+output_path='/Users/biar/Desktop/color_filtered_tmp_WDangerLev_for_nontidal.pdf'                         ### change the output path when needed 
 
 
 
