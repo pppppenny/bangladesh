@@ -29,8 +29,18 @@ def tmplt (stationdata,station_name,ax):
         ax.set_title(f'{station_name} - Insufficient Data')
         return
     
+    ## checking if the original data starts with 1985 and ends with 2018, and add the rows if not 
 
-    ## the plotting part 
+
+
+
+
+
+
+
+
+
+    ## plotting the time series lines and regression part 
 
     slope, intercept, r_value, p_value, std_err = linregress(dt_cleaned['DecYear'], dt_cleaned['SWLavg'])
     dt_used.plot(x='DecYear',y='SWLavg',  ax=ax,label='Average surface water level')
@@ -58,6 +68,8 @@ def tmplt (stationdata,station_name,ax):
     mean_level = dt_cleaned['SWLavg'].mean()
     ax.axhline(mean_level, color='black', linestyle='--', label=f'Mean Water Level: {mean_level:.2f}')
 
+
+
     #plotting the danger level and calculating num of times exceeded 
     count = 0
     if not matching_station.empty:
@@ -70,11 +82,22 @@ def tmplt (stationdata,station_name,ax):
                 count = count +1
 
             percentage = (count/(len(stationdata.dropna())))*100
-            ax.text(0.02, 0.98,f'T_exceeded: {count} ({percentage:.2f}%)', transform=ax.transAxes, color='red', verticalalignment='top')
+            ax.text(1.02, 0.6,f'Danger Level Exceeded Times: {count} ({percentage:.2f}%)', transform=ax.transAxes, color='red', verticalalignment='top')
 
         else:
-            ax.text(0.02, 0.98, 'Danger Level: No Data', transform=ax.transAxes, color='red', verticalalignment='top')
+            ax.text(1.02, 0.6,'Danger Level: No Data', transform=ax.transAxes, color='red', verticalalignment='top')
 
+
+
+
+    # Calculating percentage of missing month 
+    num_of_month_missing = dt_used['SWLavg'].isna().sum()
+    percentage_missing_month = (num_of_month_missing/(12*34))*100
+    ax.text(1.02, 0.5, f'The percentgae of missing month is {percentage_missing_month:.2f}%.', transform=ax.transAxes, fontsize=10, va='top')
+
+
+
+    # Legend position and showing the grid 
     ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
     ax.grid(True)
 
