@@ -10,35 +10,27 @@ from scipy.stats import linregress
 from matplotlib.backends.backend_pdf import PdfPages
 import glob
 import os
-
+import datetime
 
 
 # the time series plot function
 def tmplt (stationdata,station_name,ax):
     dt_used = stationdata[['Year','Month','Day','DecYear','SWLavg']].copy()
-    dt_used['DateTMS'] = pd.to_datetime(dt_used[['Year', 'Month','Day']])     #get the timeseries object 
 
-    dt_used.index = dt_used['Year']
 
-    matching_station = danger_level_data[danger_level_data['StationID'] == station_name]
 
+    matching_station = danger_level_data[danger_level_data['StationID'] == station_name]     # check the matching stations 
+
+
+    #cleaning NaN only for regression 
     dt_cleaned = dt_used.dropna() # for the regression to run smoothly 
+
     if len(dt_cleaned) < 2:
         ax.text(0.5, 0.5, f'Insufficient data for {station_name}', 
                 ha='center', va='center', transform=ax.transAxes)
         ax.set_title(f'{station_name} - Insufficient Data')
         return
     
-    ## checking if the original data starts with 1985 and ends with 2018, and add the rows if not 
-
-
-
-
-
-
-
-
-
 
     ## plotting the time series lines and regression part 
 
@@ -46,23 +38,24 @@ def tmplt (stationdata,station_name,ax):
     dt_used.plot(x='DecYear',y='SWLavg',  ax=ax,label='Average surface water level')
     sns.regplot(x='DecYear', y='SWLavg', data=dt_cleaned, ax=ax,ci=None, color='orange',label=f'Linear trend with a slope of {slope:.4f}', scatter=False)
 
+    
 
     ## matching the danger level station id and station name 
 
     if matching_station.empty:
         print(f"[Warning] No matching station name for station id: {station_name}")
         ax.set_title(f'{station_name} Water Level Monthly Trend (1985-2018)')
-        ax.text(0.02, 0.98, 'No Station Danger Level Record', transform=ax.transAxes, color='red', verticalalignment='top')
-
+        ax.text(1.02, 0.6, 'No Station Danger Level Record', transform=ax.transAxes, color='red', verticalalignment='top')
 
     else:
         actual_name = matching_station['Station_Name'].iloc[0]
         river_name = matching_station['River'].iloc[0]
         ax.set_title(f'{station_name}-{actual_name} (River: {river_name}) Water Level Monthly Trend (1985-2018)')
 
+
     ax.set_xlabel('Year')
     ax.set_ylabel('Water Level (meters)')
-    
+    ax.set_xlim(1984, 2020)
 
     #plotting the mean water level 
     mean_level = dt_cleaned['SWLavg'].mean()
@@ -139,6 +132,48 @@ def fails_quality_check(sdata,ax):
 
 
 
+def complete_date_range(the_data):
+
+ ## checking if the original data starts with 1985 and ends with 2018, and add the rows if not 
+
+    the_data['DateTMS'] = pd.to_datetime(the_data[['Year', 'Month','Day']])     #get the timeseries object 
+    # create a new dataframe with all months from 1985 to 2018
+    full_range = pd.date_range(start='1985-01-31', end='2018-12-31', freq='ME')
+    complete_df = pd.DataFrame({
+        'DateTMS': full_range,
+        'Year': full_range.year,
+        'Month': full_range.month,
+        'Day': full_range.day,
+        'SWLavg': np.nan})
+
+
+    def year_fraction(date):
+        start = datetime.date(date.year, 1, 1).toordinal()
+        year_length = datetime.date(date.year+1, 1, 1).toordinal() - start
+        return date.year + float(date.toordinal() - start) / year_length
+
+
+    complete_df['DecYear'] = complete_df['DateTMS'].apply(lambda x: year_fraction(x.date()))
+    
+
+    # merge the two df and keep existing values
+    if not the_data.empty:
+        the_data = pd.merge(complete_df, the_data[['DateTMS', 'SWLavg','DecYear']], 
+                          on='DateTMS', how='left', suffixes=('', '_existing'))
+        
+        # use existing values where available, otherwise keep NaN
+        the_data['SWLavg'] = the_data['SWLavg_existing'].fillna(the_data['SWLavg'])
+        the_data['DecYear'] = the_data['DecYear_existing'].fillna(the_data['DecYear'])
+        the_data = the_data.drop(['SWLavg_existing','DecYear_existing'], axis=1)
+   
+    # sort by data and reset index
+    the_data = the_data.sort_values('DateTMS').reset_index(drop=True)
+    the_data.index = the_data['Year']
+
+    return the_data
+
+
+
 
 
 
@@ -181,7 +216,11 @@ with PdfPages(output_path) as pdf:
                     axes[i].set_title(f'{station_name} - No Data')
 
                     continue
+                
 
+
+                #making the df the complete df with range 1985-2018 
+                df = complete_date_range(df)  
 
                 #the filtering part and making the filtered plots grey
 
@@ -191,6 +230,7 @@ with PdfPages(output_path) as pdf:
                     df.plot(x='DecYear',y='SWLavg',  ax=axes[i],label='Average surface water level', color = 'grey')
                     axes[i].set_xlabel('Year')
                     axes[i].set_ylabel('Water Level (meters)')
+                    axes[i].set_xlim(1984, 2020)
                     axes[i].grid(True)
 
                     continue
