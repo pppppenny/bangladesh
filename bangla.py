@@ -11,16 +11,14 @@ from matplotlib.backends.backend_pdf import PdfPages
 import glob
 import os
 import datetime
+from statsmodels.tsa.seasonal import STL
 
 
 # the time series plot function
 def tmplt (stationdata,station_name,ax):
-    dt_used = stationdata[['Year','Month','Day','DecYear','SWLavg']].copy()
-
-
+    dt_used = stationdata.copy()
 
     matching_station = danger_level_data[danger_level_data['StationID'] == station_name]     # check the matching stations 
-
 
     #cleaning NaN only for regression 
     dt_cleaned = dt_used.dropna() # for the regression to run smoothly 
@@ -34,10 +32,31 @@ def tmplt (stationdata,station_name,ax):
 
     ## plotting the time series lines and regression part 
 
-    slope, intercept, r_value, p_value, std_err = linregress(dt_cleaned['DecYear'], dt_cleaned['SWLavg'])
-    dt_used.plot(x='DecYear',y='SWLavg',  ax=ax,label='Average surface water level')
-    sns.regplot(x='DecYear', y='SWLavg', data=dt_cleaned, ax=ax,ci=None, color='orange',label=f'Linear trend with a slope of {slope:.4f}', scatter=False)
 
+    # stl decomposition
+    dt_for_stl = dt_cleaned['SWLavg']
+    stl = STL(dt_for_stl, period = 12, robust =True)
+    stl_result= stl.fit()
+
+    seas = stl_result.seasonal
+
+    deseasonalised_swlavg = dt_cleaned['SWLavg']-seas
+
+    #fit a linear trend to the deseasonalised data
+    slope, intercept, r_value, p_value, std_err = linregress(dt_cleaned['DecYear'],deseasonalised_swlavg)
+
+    dt_used.plot(x='DecYear',y='SWLavg',  ax=ax,label='Average surface water level')
+
+    trend_line = slope*dt_used['DecYear'] +intercept
+    ax.plot(dt_used['DecYear'], trend_line, color='orange', label=f'Linear trend (deseasonalised) slope: {slope:.2f}', linewidth=2)
+
+
+
+    #the simple linear regression trend with no seasonal consideration
+        #slope, intercept, r_value, p_value, std_err = linregress(dt_cleaned['DecYear'], dt_cleaned['SWLavg'])
+        # sns.regplot(x='DecYear', y='SWLavg', data=dt_cleaned, ax=ax,ci=None, color='orange',label=f'Linear trend with a slope of {slope:.4f}', scatter=False)
+
+    
     
 
     ## matching the danger level station id and station name 
@@ -168,7 +187,7 @@ def complete_date_range(the_data):
    
     # sort by data and reset index
     the_data = the_data.sort_values('DateTMS').reset_index(drop=True)
-    the_data.index = the_data['Year']
+    the_data.index = the_data['DateTMS']
 
     return the_data
 
@@ -178,7 +197,7 @@ def complete_date_range(the_data):
 
 
 # getting all the station data 
-folder_path = '/Users/biar/Desktop/BWDB_nontidal_data_1985_2018'             ### change the path name when needed 
+folder_path = '/Users/biar/Desktop/BWDB_tidal_data_1985_2018'             ### change the path name when needed 
 csv_files = glob.glob(f'{folder_path}/*.csv')
 
 #getting the danger level water data
@@ -190,7 +209,7 @@ print(f"Found {len(csv_files)} CSV files to process")
 
 
 ## setting output path
-output_path='/Users/biar/Desktop/color_filtered_tmp_WDangerLev_for_nontidal.pdf'                         ### change the output path when needed 
+output_path='/Users/biar/Desktop/color_deseasonal_filtered_tmp_WDangerLev_for_tidal.pdf'                         ### change the output path when needed 
 
 
 
@@ -222,8 +241,8 @@ with PdfPages(output_path) as pdf:
                 #making the df the complete df with range 1985-2018 
                 df = complete_date_range(df)  
 
-                #the filtering part and making the filtered plots grey
 
+                #the filtering part and making the filtered plots grey
                 if fails_quality_check(df, axes[i]):
 
                     
