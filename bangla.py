@@ -12,10 +12,12 @@ import glob
 import os
 import datetime
 from statsmodels.tsa.seasonal import STL
+import shutil
+
 
 
 # the time series plot function
-def tmplt (stationdata,station_name,ax):
+def tmplt (stationdata,station_name,ax,danger_level_data):
     dt_used = stationdata.copy()
 
     matching_station = danger_level_data[danger_level_data['StationID'] == station_name]     # check the matching stations 
@@ -23,19 +25,12 @@ def tmplt (stationdata,station_name,ax):
     #cleaning NaN only for regression 
     dt_cleaned = dt_used.dropna() # for the regression to run smoothly 
 
-    if len(dt_cleaned) < 2:
-        ax.text(0.5, 0.5, f'Insufficient data for {station_name}', 
-                ha='center', va='center', transform=ax.transAxes)
-        ax.set_title(f'{station_name} - Insufficient Data')
-        return
-    
-
     ## plotting the time series lines and regression part 
 
 
     # stl decomposition
     dt_for_stl = dt_cleaned['SWLavg']
-    stl = STL(dt_for_stl, period = 12, robust =True)
+    stl = STL(dt_for_stl, seasonal = 13, period =12 , robust =True)
     stl_result= stl.fit()
 
     seas = stl_result.seasonal
@@ -67,8 +62,8 @@ def tmplt (stationdata,station_name,ax):
         ax.text(1.02, 0.6, 'No Station Danger Level Record', transform=ax.transAxes, color='red', verticalalignment='top')
 
     else:
-        actual_name = matching_station['Station_Name'].iloc[0]
-        river_name = matching_station['River'].iloc[0]
+        actual_name = matching_station['StationNam'].iloc[0]
+        river_name = matching_station['RiverName'].iloc[0]
         ax.set_title(f'{station_name}-{actual_name} (River: {river_name}) Water Level Monthly Trend (1985-2018)')
 
 
@@ -85,19 +80,24 @@ def tmplt (stationdata,station_name,ax):
     #plotting the danger level and calculating num of times exceeded 
     count = 0
     if not matching_station.empty:
-        danger_level = matching_station['Danger_Level_meters'].iloc[0]
         
-        if pd.notna(danger_level):
-            ax.axhline(danger_level, color='red', linestyle='-', label=f'Danger Water Level: {danger_level:.2f}')
-            for watervalue in stationdata['SWLavg']:
-              if watervalue >  danger_level:
-                count = count +1
+        danger_level = matching_station['DLm'].iloc[0] 
+        
 
-            percentage = (count/(len(stationdata.dropna())))*100
-            ax.text(1.02, 0.6,f'Danger Level Exceeded Times: {count} ({percentage:.2f}%)', transform=ax.transAxes, color='red', verticalalignment='top')
+        if pd.isna(danger_level):
+            danger_level = matching_station['DLmInterp'].iloc[0]
+            interpolated_note = '(Interpolated) '
+        else: 
+            interpolated_note = ''
+        
+        for watervalue in stationdata['SWLavg']:
+            if watervalue >  danger_level:
+                count += 1
 
-        else:
-            ax.text(1.02, 0.6,'Danger Level: No Data', transform=ax.transAxes, color='red', verticalalignment='top')
+        percentage = (count/(len(stationdata.dropna())))*100
+        ax.text(1.02, 0.6,f'{interpolated_note}Danger Level Exceeded Times: {count} ({percentage:.2f}%)', transform=ax.transAxes, color='red', verticalalignment='top')
+        ax.axhline(danger_level, color='red', linestyle='-', label=f'Danger Water Level: {danger_level:.2f}')
+
 
 
 
@@ -105,7 +105,7 @@ def tmplt (stationdata,station_name,ax):
     # Calculating percentage of missing month 
     num_of_month_missing = dt_used['SWLavg'].isna().sum()
     percentage_missing_month = (num_of_month_missing/(12*34))*100
-    ax.text(1.02, 0.5, f'The percentgae of missing month is {percentage_missing_month:.2f}%.', transform=ax.transAxes, fontsize=10, va='top')
+    ax.text(1.02, 0.5, f'The percentage of missing month is {percentage_missing_month:.2f}%.', transform=ax.transAxes, fontsize=10, va='top')
 
 
 
@@ -194,78 +194,104 @@ def complete_date_range(the_data):
 
 
 
+if __name__ == "__main__":
 
 
-# getting all the station data 
-folder_path = '/Users/biar/Desktop/BWDB_tidal_data_1985_2018'             ### change the path name when needed 
-csv_files = glob.glob(f'{folder_path}/*.csv')
+    # getting all the station data 
+    folder_path = '/Users/biar/Desktop/BWDB_nontidal_data_1985_2018'             ### change the path name when needed 
+    csv_files = glob.glob(f'{folder_path}/*.csv')
 
-#getting the danger level water data
-danger_level_data = pd.read_csv('/Users/biar/Desktop/BWDB_river_danger_level_data.csv')
-
-
-print(f"Found {len(csv_files)} CSV files to process")
+    #getting the danger level water data
+    danger_level_data = pd.read_csv('/Users/biar/Desktop/BWDB_river_danger_level_data.csv')
 
 
-
-## setting output path
-output_path='/Users/biar/Desktop/color_deseasonal_filtered_tmp_WDangerLev_for_tidal.pdf'                         ### change the output path when needed 
+    print(f"Found {len(csv_files)} CSV files to process")
 
 
 
-###the main loop
-# loop through all the stations 
-with PdfPages(output_path) as pdf:
-
-    for j in range(0, len(csv_files), 4):
-        fig, axes = plt.subplots(nrows=4, ncols=1, figsize=(12, 18))
-
-        for i in range(4):
-            if j + i < len(csv_files):
-                file_path = csv_files[j + i]
-                file_name = os.path.basename(file_path)
-                file_name = os.path.splitext(file_name)[0]
-                station_name = file_name.split('_monthly')[0]
-
-                df = pd.read_csv(file_path)
-
-                if df.empty:
-                    print(f"Skipping {station_name}: CSV file is empty")
-                    axes[i].text(0.5, 0.5, f'No data available for {station_name}', ha='center', va='center', transform=axes[i].transAxes)
-                    axes[i].set_title(f'{station_name} - No Data')
-
-                    continue
-                
+    ## setting output path
+    output_path='/Users/biar/Desktop/color_deseasonal_filtered_tmp_WDangerLev_for_nontidal.pdf'                         ### change the output path when needed 
 
 
-                #making the df the complete df with range 1985-2018 
-                df = complete_date_range(df)  
 
 
-                #the filtering part and making the filtered plots grey
-                if fails_quality_check(df, axes[i]):
+
+    ## Part 1 of writting selected data files into a new folder  
+    stations_passed = []
+    destination_folder = ''           ### change the output folder name when needed 
+    tidal_manually_wanted = ['SW193','SW136.1', 'SW278', 'SW253', 'SW38.1', 'SW323', 'SW320', 'SW121', 'SW230.1', 'SW288.4', 'SW180']
+    nontidal_manually_wanted = ['SW8', 'SW313', 'SW326', 'SW172.5', 'SW149.1', 'SW72B', 'SW233A', 'SW236', 'SW252.1', 'SW101.5', 'SW265', 'SW216A', 'SW344', 'SW227', 'SW233', 'SW311.4', 'SW131.5', 'SW150']
+
+
+    ###the main loop
+    # loop through all the stations 
+    with PdfPages(output_path) as pdf:
+
+        for j in range(0, len(csv_files), 4):
+            fig, axes = plt.subplots(nrows=4, ncols=1, figsize=(12, 18))
+
+            for i in range(4):
+                if j + i < len(csv_files):
+                    file_path = csv_files[j + i]
+                    file_name = os.path.basename(file_path)
+                    file_name = os.path.splitext(file_name)[0]
+                    station_name = file_name.split('_monthly')[0]
+
+                    df = pd.read_csv(file_path)
+
+                    if df.empty:
+                        print(f"Skipping {station_name}: CSV file is empty")
+                        axes[i].text(0.5, 0.5, f'No data available for {station_name}', ha='center', va='center', transform=axes[i].transAxes)
+                        axes[i].set_title(f'{station_name} - No Data')
+
+                        continue
+                    
+
+
+                    #making the df the complete df with range 1985-2018 
+                    df = complete_date_range(df)  
 
                     
-                    df.plot(x='DecYear',y='SWLavg',  ax=axes[i],label='Average surface water level', color = 'grey')
-                    axes[i].set_xlabel('Year')
-                    axes[i].set_ylabel('Water Level (meters)')
-                    axes[i].set_xlim(1984, 2020)
-                    axes[i].grid(True)
 
-                    continue
-
-                
-                #Actual plotting 
-                tmplt(df, station_name, axes[i])
+                    # the manual selection
+                    if station_name in nontidal_manually_wanted:       ### change the location when needed 
+                        tmplt(df, station_name, axes[i])
+                        stations_passed.append(file_path)
+                    else: 
 
 
+                    #the filtering part and making the filtered plots grey
+                        if fails_quality_check(df, axes[i]):
 
-            else:
-                axes[i].set_visible(False)  
+                            
+                            df.plot(x='DecYear',y='SWLavg',  ax=axes[i],label='Average surface water level', color = 'grey')
+                            axes[i].set_xlabel('Year')
+                            axes[i].set_ylabel('Water Level (meters)')
+                            axes[i].set_xlim(1984, 2020)
+                            axes[i].text(1.02, 0.6, 'Failed Quality Check', transform=axes[i].transAxes, color='grey', fontsize=15)
+                            axes[i].grid(True)
+                        
+                        else: 
+                            #Actual plotting 
+                            tmplt(df, station_name, axes[i])
+                            stations_passed.append(file_path)
 
-        plt.tight_layout()
-        pdf.savefig(fig, bbox_inches='tight')
-        plt.close(fig)
-        
-print(f"PDF saved to: {os.path.abspath(output_path)}")
+
+
+                else:
+                    axes[i].set_visible(False)  
+
+            plt.tight_layout()
+            pdf.savefig(fig, bbox_inches='tight')
+            plt.close(fig)
+            
+    print(f"PDF saved to: {os.path.abspath(output_path)}")
+
+
+    ## Part 2 of writting selected data files into a new folder 
+    for stations_path in stations_passed:
+        if os.path.isfile(stations_path):  
+            shutil.copy(stations_path, destination_folder)
+        else:
+            print(f"File not found: {stations_path}")
 
