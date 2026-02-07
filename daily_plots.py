@@ -7,14 +7,16 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import statistics
-from scipy.stats import linregress
 from matplotlib.backends.backend_pdf import PdfPages
 import glob
 import os
 import datetime
 from datetime import datetime
 import time
-import pymannkendall as mk
+from scipy.stats import theilslopes
+from statsmodels.tsa.seasonal import STL
+from scipy.stats import linregress
+
 
 
 
@@ -26,7 +28,10 @@ def tmplt_daily (stationdata,station_name,ax,danger_level_data):
     percentage = np.nan
 
     mean_level= np.nan
-    slope = np.nan
+    slope_sen = np.nan
+    slope_linear = np.nan
+    intercept_linear = np.nan
+    slope_desea = np.nan
     danger_level= np.nan
 
     count= np.nan
@@ -41,61 +46,50 @@ def tmplt_daily (stationdata,station_name,ax,danger_level_data):
    
 
     ## plotting the time series lines and regression part 
-
-
-    # stl decomposition
-    #dt_for_stl = dt_used[station_name]
-    #dt_for_stl_clean = dt_for_stl.dropna()
-
-    #stl = STL(dt_for_stl_clean, seasonal = 13, period = 365 , robust =True)
-    #stl_result= stl.fit()
-
-    # seas = stl_result.seasonal
-
-    #deseasonalised_swlavg = dt_used[station_name]-seas
-
-    #fit a linear trend to the deseasonalised data
-    #slope, intercept, r_value, p_value, std_err = linregress(dt_used['DecimYear'],deseasonalised_swlavg)
-
-    #dt_used.plot(x='DecimYear',y=station_name,  ax=ax,label='Average surface water level')
-
-    #trend_line = slope*dt_used['DecimYear'] +intercept
-    #ax.plot(dt_used['DecimYear'], trend_line, color='orange', label=f'Linear trend (deseasonalised) slope: {slope:.5f}', linewidth=2)
-
-
-
-    # Theil Sen 
-    # seasonal mann-kendall test 
-    y_dt_for_sen = dt_used[station_name]
-    x_dt_for_sen = dt_used['DecimYear']
-
-    results_mk_sens = mk.seasonal_test(y_dt_for_sen)
-    slope =results_mk_sens.slope
-    intercept = results_mk_sens.intercept
-    p_value = results_mk_sens.p
-
     ax.plot(dt_used['DecimYear'], dt_used[station_name], color='steelblue', linewidth=1, label='Surface Water Level')
+
+    #the simple linear regression trend with no seasonal consideration
+    slope_linear, intercept_linear, r_value_l, p_value_l, std_err_l= linregress(dt_used['DecimYear'], dt_used[station_name])
+    trend_line_linear = intercept_linear + slope_linear * dt_used['DecimYear']
+
+    ax.plot(dt_used['DecimYear'], trend_line_linear,
+                 color='green',
+                 label=f"Linear trend slope: {slope_linear:.5f}",
+                linewidth=1.7)
+
+    # Theil Sen     
+    slope_sen, intercept_sen, lo_s, high_s= theilslopes(dt_used[station_name],dt_used['DecimYear'])
 
     #dt_used.plot(x='DecimYear',y=station_name,color='blue', ax=ax,label='Average surface water level')
 
 
-    trend_line = intercept+ slope*x_dt_for_sen
+    trend_line_sen = intercept_sen+ (slope_sen*dt_used['DecimYear'])
 
-    ax.plot(x_dt_for_sen, trend_line, color='darkorange',
-            label=f"Theil Sen trend slope: {slope:.5f}",
-            linewidth=2)
+    ax.plot(dt_used['DecimYear'], trend_line_sen, color='darkorange',
+            label=f"Theil-Sen trend slope: {slope_sen:.5f}",
+            linewidth=1.7)
 
-
-    if p_value >0.05 :
-        ax.text(1.02, 0.4,f'As the p value is {p_value:.5f}, the trend is not statistically significant.', transform=ax.transAxes, color='red', verticalalignment='top',fontsize=7)
-    else:
-        ax.text(1.02, 0.4,f'As the p value is {p_value:.5f}, the trend is statistically significant.', transform=ax.transAxes, color='red', verticalalignment='top',fontsize=7)
+    # stl decomposition
+    dt_for_stl = dt_used.set_index(pd.to_datetime(dt_used['Date']))[station_name]
 
 
+    stl = STL(dt_for_stl, period = 365 , robust =True)
+    stl_result= stl.fit()
 
-    #the simple linear regression trend with no seasonal consideration
-        #slope, intercept, r_value, p_value, std_err = linregress(dt_cleaned['DecYear'], dt_cleaned['SWLavg'])
-        # sns.regplot(x='DecYear', y='SWLavg', data=dt_cleaned, ax=ax,ci=None, color='orange',label=f'Linear trend with a slope of {slope:.4f}', scatter=False)
+    seas = stl_result.seasonal
+
+    deseasonalised_swlavg = dt_for_stl-seas
+
+    #fit a linear trend to the deseasonalised data
+    slope_desea, intercept_desea, r_value_d, p_value_d, std_err_d = linregress(dt_used['DecimYear'],deseasonalised_swlavg)
+
+    #dt_used.plot(x='DecimYear',y=station_name,  ax=ax,label='Average surface water level')
+
+    trend_line_desea = slope_desea*dt_used['DecimYear'] +intercept_desea
+    ax.plot(dt_used['DecimYear'], trend_line_desea, color='gold', label=f'Linear trend (deseasonalised) slope: {slope_desea:.5f}', linewidth=1.7)
+
+
+
 
     
     
@@ -119,8 +113,9 @@ def tmplt_daily (stationdata,station_name,ax,danger_level_data):
     ax.set_xlim(1984, 2020)
 
     #plotting the mean water level 
-    mean_level = dt_used[station_name].mean()
-    ax.axhline(mean_level, color='black', linestyle='--', label=f'Mean Water Level: {mean_level:.3f}')
+    mean_level = round(dt_used[station_name].mean(), 2)
+
+    ax.axhline(mean_level, color='black', linestyle='--', label=f'Mean Water Level: {mean_level}')
 
 
 
@@ -131,7 +126,7 @@ def tmplt_daily (stationdata,station_name,ax,danger_level_data):
                                      'SW128','SW73','SW280','SW158','SW181','SW233','SW114','SW264A','SW157',
                                      'SW335','SW311.4','SW97']
     
-    dl_95th = np.percentile(dt_used[station_name].dropna(), 95)
+    dl_95th = round(np.percentile(dt_used[station_name].dropna(), 95),2)
     BWDB_danger_level = matching_station['DLm'].iloc[0] if not matching_station.empty else np.nan
     dl_interp = matching_station['DLmInterp'].iloc[0] if not matching_station.empty else np.nan
 
@@ -151,11 +146,11 @@ def tmplt_daily (stationdata,station_name,ax,danger_level_data):
         if watervalue >  danger_level:
             count += 1
 
-    percentage = (count/(12418))*100
-    ax.text(1.02, 0.6,f'{interpolated_note}Danger Level Exceeded Times: {count} ({percentage:.3f}%)', transform=ax.transAxes, color='red', verticalalignment='top',fontsize=7)
-    ax.axhline(BWDB_danger_level, color='firebrick', linestyle='-', label=f'BWDB Danger Water Level: {BWDB_danger_level:.3f}')
-    ax.axhline(dl_interp, color='lightpink', linestyle='-', label=f'Interpolated Danger Water Level: {dl_interp:.3f}')
-    ax.axhline(dl_95th, color='mediumorchid', linestyle='-', label=f'95th Percentile Danger Water Level: {dl_95th:.3f}')
+    percentage = round((count/(12418))*100,2)
+    ax.text(1.02, 0.6,f'{interpolated_note}Danger Level Exceeded Times: {count} ({percentage:.2f}%)', transform=ax.transAxes, color='red', verticalalignment='top',fontsize=7)
+    ax.axhline(BWDB_danger_level, color='firebrick', linestyle='-', label=f'BWDB Danger Level: {BWDB_danger_level:.2f}')
+    ax.axhline(dl_interp, color='lightpink', linestyle='-', label=f'Interpolated Danger Level: {dl_interp:.2f}')
+    ax.axhline(dl_95th, color='mediumorchid', linestyle='-', label=f'95th Percentile Danger Level: {dl_95th:.2f}')
 
 
 
@@ -177,9 +172,11 @@ def tmplt_daily (stationdata,station_name,ax,danger_level_data):
         'StartDate': stationdata['Date'].iloc[0],
         'EndDate': stationdata['Date'].iloc[-1],
         'MeanLevel': mean_level,
-        'TrendSlope': slope,
+        'Linear_Slope': slope_linear,
+        'Deseasonalised_Slope': slope_desea,
+        'TheilSen_Slope': slope_sen,
         'DangerLevel_adopted':danger_level,
-        'DWDB_DangerLevel': BWDB_danger_level,
+        'BWDB_DangerLevel': BWDB_danger_level,
         '95th_DL':dl_95th,
         'Interpolated_DL':dl_interp, 
         'Total_Amount_of_Data': (len(dt_used['DecimYear'])), 
@@ -193,7 +190,7 @@ def tmplt_daily (stationdata,station_name,ax,danger_level_data):
 
 
 # getting all the station data  (input path)
-file_csv_path = '/Users/biar/Desktop/low_tide_filtered.csv'    ###change when needed 
+file_csv_path = '/Users/biar/Desktop/tesr.csv'    ###change when needed 
 print(f"Loading merged CSV: {file_csv_path}")
 
 df_all_stations = pd.read_csv(file_csv_path)
