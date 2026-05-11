@@ -1,5 +1,4 @@
 
-## for tidal data, it's SWLavg, for nontidal it's SWLmpwd
 
 
 # imports
@@ -14,7 +13,7 @@ import datetime
 from datetime import datetime
 import time
 from scipy.stats import theilslopes
-from statsmodels.tsa.seasonal import STL
+# from statsmodels.tsa.seasonal import STL
 from scipy.stats import linregress
 
 
@@ -23,7 +22,7 @@ from scipy.stats import linregress
 the_result_table = [] 
 
 # the time series plot function
-def tmplt_daily (stationdata,station_name,ax,danger_level_data):
+def tmplt_daily (stationdata,station_name,ax,ax2,danger_level_data):
 
     percentage = np.nan
 
@@ -31,11 +30,16 @@ def tmplt_daily (stationdata,station_name,ax,danger_level_data):
     slope_sen = np.nan
     slope_linear = np.nan
     intercept_linear = np.nan
-    slope_desea = np.nan
+    #slope_desea = np.nan
+    slope_linear_harmonic = np.nan
     danger_level= np.nan
 
     count= np.nan
-    
+
+    t= np.nan
+    sin_t=np.nan
+    cos_t=np.nan
+    intercept_linear_sincos = np.nan
 
 
 
@@ -48,16 +52,36 @@ def tmplt_daily (stationdata,station_name,ax,danger_level_data):
     ## plotting the time series lines and regression part 
     ax.plot(dt_used['DecimYear'], dt_used[station_name], color='steelblue', linewidth=1, label='Surface Water Level')
 
-    #the simple linear regression trend with no seasonal consideration
+    #1. the simple linear regression trend with no seasonal consideration
     slope_linear, intercept_linear, r_value_l, p_value_l, std_err_l= linregress(dt_used['DecimYear'], dt_used[station_name])
     trend_line_linear = intercept_linear + slope_linear * dt_used['DecimYear']
 
     ax.plot(dt_used['DecimYear'], trend_line_linear,
-                 color='green',
+                 color='limegreen',
                  label=f"Linear trend slope: {slope_linear:.5f}",
                 linewidth=1.7)
 
-    # Theil Sen     
+
+    #2. simple linear regression with sin and cos (harmonic trend)
+    
+    t = dt_used['DecimYear']
+    y = dt_used[station_name]
+
+
+    sin_t = np.sin(2 * np.pi * t)
+    cos_t = np.cos(2 * np.pi * t)
+
+    A = np.column_stack([np.ones(len(t)), t, sin_t, cos_t])
+    coeffs, _, _, _ = np.linalg.lstsq(A, y, rcond=None)
+    intercept_linear_sincos, slope_linear_harmonic, sin_coeff, cos_coeff = coeffs
+    trend_line_linear_sinos = intercept_linear_sincos + slope_linear_harmonic * dt_used['DecimYear']
+
+    ax.plot(dt_used['DecimYear'], trend_line_linear_sinos, color='gold', label=f'Linear trend (sin/cos) slope: {slope_linear_harmonic:.5f}', linewidth=1.7)
+
+
+
+
+    #3. Theil Sen     
     slope_sen, intercept_sen, lo_s, high_s= theilslopes(dt_used[station_name],dt_used['DecimYear'])
 
     #dt_used.plot(x='DecimYear',y=station_name,color='blue', ax=ax,label='Average surface water level')
@@ -70,23 +94,23 @@ def tmplt_daily (stationdata,station_name,ax,danger_level_data):
             linewidth=1.7)
 
     # stl decomposition
-    dt_for_stl = dt_used.set_index(pd.to_datetime(dt_used['Date']))[station_name]
+    #dt_for_stl = dt_used.set_index(pd.to_datetime(dt_used['Date']))[station_name]
 
 
-    stl = STL(dt_for_stl, period = 365 , robust =True)
-    stl_result= stl.fit()
+    #stl = STL(dt_for_stl, period = 365 , robust =True)
+    #stl_result= stl.fit()
 
-    seas = stl_result.seasonal
+    #seas = stl_result.seasonal
 
-    deseasonalised_swlavg = dt_for_stl-seas
+    #deseasonalised_swlavg = dt_for_stl-seas
 
     #fit a linear trend to the deseasonalised data
-    slope_desea, intercept_desea, r_value_d, p_value_d, std_err_d = linregress(dt_used['DecimYear'],deseasonalised_swlavg)
+    #slope_desea, intercept_desea, r_value_d, p_value_d, std_err_d = linregress(dt_used['DecimYear'],deseasonalised_swlavg)
 
     #dt_used.plot(x='DecimYear',y=station_name,  ax=ax,label='Average surface water level')
 
-    trend_line_desea = slope_desea*dt_used['DecimYear'] +intercept_desea
-    ax.plot(dt_used['DecimYear'], trend_line_desea, color='gold', label=f'Linear trend (deseasonalised) slope: {slope_desea:.5f}', linewidth=1.7)
+    #trend_line_desea = slope_desea*dt_used['DecimYear'] +intercept_desea
+    #ax.plot(dt_used['DecimYear'], trend_line_desea, color='gold', label=f'Linear trend (deseasonalised) slope: {slope_desea:.5f}', linewidth=1.7)
 
 
 
@@ -162,6 +186,43 @@ def tmplt_daily (stationdata,station_name,ax,danger_level_data):
     exceed_per_year = df_exceed.groupby('Year')['Exceed'].sum().to_dict()  
 
 
+    # plot per year exceedance DL 
+    years = np.array(sorted(exceed_per_year.keys()), dtype=float)
+    exceed_vals = np.array([exceed_per_year[y] for y in years], dtype=float)
+    ax2.bar(years, exceed_vals, color='steelblue', alpha=0.7, label='Days DL Exceeded')
+
+    exceed_mean   = round(float(np.mean(exceed_vals)), 2)
+    exceed_std    = round(float(np.std(exceed_vals, ddof=1)), 2)
+    exceed_median = round(float(np.median(exceed_vals)), 2)
+
+    ts_slope_yr, ts_intercept_yr, _, _ = theilslopes(exceed_vals, years)
+    ts_trend_yr = ts_intercept_yr + ts_slope_yr * years
+    ax2.plot(years, ts_trend_yr, color='darkorange', linewidth=1.7,
+                 label=f'Theil-Sen slope: {ts_slope_yr:.4f}')
+
+    lin_slope_yr, lin_intercept_yr, _, _, _ = linregress(years, exceed_vals)
+    lin_trend_yr = lin_intercept_yr + lin_slope_yr * years
+    ax2.plot(years, lin_trend_yr, color='limegreen', linewidth=1.7,
+                    label=f'Linear slope: {lin_slope_yr:.4f}')
+    stats_text = f'Mean: {exceed_mean}  |  Std: {exceed_std}  |  Median: {exceed_median}'
+
+
+    ax2.text(0.01, 0.97, stats_text,
+             transform=ax2.transAxes, fontsize=7, verticalalignment='top',
+             bbox=dict(boxstyle='round,pad=0.3', facecolor='lightyellow', alpha=0.8))
+
+    ax2.set_title(f'{station_name} — Days DL Exceeded per Year')
+    ax2.set_xlabel('Year')
+    ax2.set_ylabel('Days Exceeded')
+    ax2.set_xlim(years.min() - 1, years.max() + 1)
+    ax2.legend(fontsize=7)
+    ax2.grid(True, axis='y')
+
+
+
+
+
+
 
     # Legend position and showing the grid 
     ax.legend(loc='upper left', bbox_to_anchor=(1, 1),fontsize=7)
@@ -173,7 +234,8 @@ def tmplt_daily (stationdata,station_name,ax,danger_level_data):
         'EndDate': stationdata['Date'].iloc[-1],
         'MeanLevel': mean_level,
         'Linear_Slope': slope_linear,
-        'Deseasonalised_Slope': slope_desea,
+        'Harmonic_Linear_Slope': slope_linear_harmonic,
+         #'Deseasonalised_Slope': slope_desea,
         'TheilSen_Slope': slope_sen,
         'DangerLevel_adopted':danger_level,
         'BWDB_DangerLevel': BWDB_danger_level,
@@ -182,7 +244,13 @@ def tmplt_daily (stationdata,station_name,ax,danger_level_data):
         'Total_Amount_of_Data': (len(dt_used['DecimYear'])), 
         'DL_Exceeded_Count':count,
         'DL_Exceeded_Percentage': percentage,
-        'DL_Exceeded_Per_Year': exceed_per_year
+        'ExceedPerYear_Mean': exceed_mean,
+        'ExceedPerYear_Std': exceed_std,
+        'ExceedPerYear_Median': exceed_median,
+        'ExceedPerYear_TheilSen_Slope': ts_slope_yr,
+        'ExceedPerYear_Linear_Slope': lin_slope_yr,
+        'DL_Exceeded_Per_Year': exceed_per_year,
+
     }
 
 
@@ -190,7 +258,7 @@ def tmplt_daily (stationdata,station_name,ax,danger_level_data):
 
 
 # getting all the station data  (input path)
-file_csv_path = '/Users/biar/Desktop/tesr.csv'    ###change when needed 
+file_csv_path = '/Users/biar/Desktop/low_tide_filled.csv'    ###change when needed 
 print(f"Loading merged CSV: {file_csv_path}")
 
 df_all_stations = pd.read_csv(file_csv_path)
@@ -227,7 +295,7 @@ print(f"Loop started at: {start_time}")
 with PdfPages(output_path) as pdf:
 
     for j in range(0, len(station_columns), 4):
-        fig, axes = plt.subplots(nrows=4, ncols=1, figsize=(12, 18))
+        fig, axes = plt.subplots(nrows=4, ncols=2, figsize=(22, 18))
 
         for i in range(4):
             if j + i < len(station_columns):
@@ -238,14 +306,15 @@ with PdfPages(output_path) as pdf:
 
 
 
-                result_of_station = tmplt_daily(station_data, station_name, axes[i],DL_data)
+                result_of_station = tmplt_daily(station_data, station_name, axes[i,0], axes[i, 1],DL_data)
 
                 the_result_table.append(result_of_station)
 
 
 
             else:
-                axes[i].set_visible(False)  
+                axes[i,0].set_visible(False)  
+                axes[i,1].set_visible(False)  
 
         plt.tight_layout()
         pdf.savefig(fig, bbox_inches='tight')
@@ -263,7 +332,7 @@ summary_df_final = pd.concat([results_df.drop(columns=['DL_Exceeded_Per_Year']),
 
 
 
-results_csv_path = '/Users/biar/Desktop/all_station_lowtide_summary_result.csv'      # change when needed 
+results_csv_path = '/Users/biar/Desktop/all_station_lowtide_result.csv'      # change when needed 
 summary_df_final.to_csv(results_csv_path, index=False)
 print(f"Summary CSV saved to: {results_csv_path}")
 
