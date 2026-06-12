@@ -1,0 +1,188 @@
+
+
+
+# imports
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+import statistics
+from matplotlib.backends.backend_pdf import PdfPages
+import glob
+import os
+import datetime
+from datetime import datetime
+import time
+from scipy.stats import theilslopes
+# from statsmodels.tsa.seasonal import STL
+from scipy.stats import linregress
+
+
+
+
+the_result_table = [] 
+
+# the time series plot function
+def dl_ninetyFifth_exceeded_plot (stationdata,station_name,ax2):
+
+    percentage = np.nan
+    danger_level= np.nan
+    count= np.nan
+
+    dt_used = stationdata.copy()
+    
+
+    #plotting the danger level and calculating num of times exceeded 
+  
+    dl_95th = round(np.percentile(dt_used[station_name].dropna(), 95),2)
+
+    danger_level = dl_95th
+  
+
+
+    # Per year num of days exceeds DL
+    df_exceed = dt_used[['Date', station_name]].copy()
+    df_exceed['Year'] = pd.to_datetime(df_exceed['Date']).dt.year
+    df_exceed['Exceed'] = df_exceed[station_name] > danger_level
+
+    count = int(df_exceed['Exceed'].sum())
+    percentage = round((count/(12418))*100,2)
+
+
+    exceed_per_year = df_exceed.groupby('Year')['Exceed'].sum().to_dict()  
+
+
+    # plot per year exceedance DL 
+    years = np.array(sorted(exceed_per_year.keys()), dtype=float)
+    exceed_vals = np.array([exceed_per_year[y] for y in years], dtype=float)
+    ax2.bar(years, exceed_vals, color='steelblue', alpha=0.7, label='Days DL Exceeded')
+
+    exceed_mean   = round(float(np.mean(exceed_vals)), 2)
+    exceed_std    = round(float(np.std(exceed_vals, ddof=1)), 2)
+    exceed_median = round(float(np.median(exceed_vals)), 2)
+
+    ts_slope_yr, ts_intercept_yr, _, _ = theilslopes(exceed_vals, years)
+    ts_trend_yr = ts_intercept_yr + ts_slope_yr * years
+    ax2.plot(years, ts_trend_yr, color='darkorange', linewidth=1.7,
+                 label=f'Theil-Sen slope: {ts_slope_yr:.4f}')
+
+    lin_slope_yr, lin_intercept_yr, _, _, _ = linregress(years, exceed_vals)
+    lin_trend_yr = lin_intercept_yr + lin_slope_yr * years
+    ax2.plot(years, lin_trend_yr, color='limegreen', linewidth=1.7,
+                    label=f'Linear slope: {lin_slope_yr:.4f}')
+    stats_text = f'Mean: {exceed_mean}  |  Std: {exceed_std}  |  Median: {exceed_median}'
+
+
+    ax2.text(0.01, 0.97, stats_text,
+             transform=ax2.transAxes, fontsize=7, verticalalignment='top',
+             bbox=dict(boxstyle='round,pad=0.3', facecolor='lightyellow', alpha=0.8))
+
+    ax2.set_title(f'{station_name} — Days DL Exceeded per Year (95th Percentile)')
+    ax2.set_xlabel('Year')
+    ax2.set_ylabel('Days Exceeded')
+    ax2.set_xlim(years.min() - 1, years.max() + 1)
+    ax2.legend(fontsize=7)
+    ax2.grid(True, axis='y')
+
+
+
+
+    return {
+        'StationID': station_name,
+        'StartDate': stationdata['Date'].iloc[0],
+        'EndDate': stationdata['Date'].iloc[-1],
+        '95th_DL':dl_95th,
+        'Total_Amount_of_Data': (len(dt_used['DecimYear'])), 
+        'DL_Exceeded_Count':count,
+        'DL_Exceeded_Percentage': percentage,
+        'ExceedPerYear_Mean': exceed_mean,
+        'ExceedPerYear_Std': exceed_std,
+        'ExceedPerYear_Median': exceed_median,
+        'ExceedPerYear_TheilSen_Slope': ts_slope_yr,
+        'ExceedPerYear_Linear_Slope': lin_slope_yr,
+        'DL_Exceeded_Per_Year': exceed_per_year,
+
+    }
+
+
+
+
+
+# getting all the station data  (input path)
+file_csv_path = '/Users/biar/Desktop/high_tide_filled.csv'    ###change when needed 
+print(f"Loading merged CSV: {file_csv_path}")
+
+df_all_stations = pd.read_csv(file_csv_path)
+
+
+#getting all the stations name columns 
+station_columns = [col for col in df_all_stations.columns 
+                  if col.startswith('SW') and col not in ['Date', 'Year', 'Month', 'Day', 'DecimYear']]
+
+print(f"Found {len(station_columns)} stations to process")
+print("Station names:", station_columns[:10], "..." if len(station_columns) > 10 else "")
+
+
+## setting output path
+output_path='/Users/biar/Desktop/all_station_high_tide_95th_DL_plots.pdf'                         ### change the output path when needed 
+
+
+
+
+
+
+###the main loop
+# loop through all the stations 
+
+start_time = datetime.now()
+print(f"Loop started at: {start_time}")
+
+
+with PdfPages(output_path) as pdf:
+
+    for j in range(0, len(station_columns), 4):
+        fig, axes = plt.subplots(nrows=4, ncols=1, figsize=(22, 18))
+
+        for i in range(4):
+            if j + i < len(station_columns):
+                station_name = station_columns[j + i]
+              
+                # Create a subset of data for this station (with all necessary columns)
+                station_data = df_all_stations[['Date', 'Year', 'Month', 'Day', 'DecimYear', station_name]].copy()
+
+
+
+                result_of_station = dl_ninetyFifth_exceeded_plot(station_data, station_name, axes[i])
+
+                the_result_table.append(result_of_station)
+
+
+
+            else:
+                axes[i].set_visible(False)  
+
+        plt.tight_layout()
+        pdf.savefig(fig, bbox_inches='tight')
+        plt.close(fig)
+        print(f"Completed batch {j//4 + 1}")
+
+
+results_df = pd.DataFrame(the_result_table)
+
+exceed_per_year_df = pd.json_normalize(results_df['DL_Exceeded_Per_Year'])
+exceed_per_year_df['StationID'] = results_df['StationID']
+
+summary_df_final = pd.concat([results_df.drop(columns=['DL_Exceeded_Per_Year']), exceed_per_year_df], axis=1)
+
+
+
+
+results_csv_path = '/Users/biar/Desktop/all_station_high_tide_95th_DL_plots.csv'      # change when needed 
+summary_df_final.to_csv(results_csv_path, index=False)
+print(f"Summary CSV saved to: {results_csv_path}")
+
+print(f"PDF saved to: {os.path.abspath(output_path)}")
+
+end_time = datetime.now()
+print(f"Loop ended at: {end_time}")
+print(f"Total runtime: {end_time - start_time}")
+
